@@ -13,8 +13,12 @@ import {
   Layers,
   Award,
   Sparkles,
+  Receipt,
+  ShoppingBag,
+  ArrowUpDown,
+  FileSpreadsheet,
 } from 'lucide-react';
-import { ReportType, SalesRecord } from '../types';
+import { ExpenseRecord, PurchaseRecord, ReportType, SalesRecord } from '../types';
 import {
   formatINR,
   formatDateDisplay,
@@ -23,13 +27,19 @@ import {
   MONTH_NAMES,
   DAYS_OF_WEEK,
 } from '../utils/formatters';
-import { exportSalesToExcel } from '../utils/excelHelper';
+import { exportComprehensiveReportToExcel, exportSalesToExcel } from '../utils/excelHelper';
 
 interface ReportsViewProps {
   sales: SalesRecord[];
+  expenses: ExpenseRecord[];
+  purchases: PurchaseRecord[];
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
+export const ReportsView: React.FC<ReportsViewProps> = ({
+  sales,
+  expenses,
+  purchases,
+}) => {
   const [reportType, setReportType] = useState<ReportType>('daily');
   const [selectedYear, setSelectedYear] = useState<string>(String(new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
@@ -44,38 +54,74 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
       const y = s.date.split('-')[0];
       if (y) years.add(y);
     });
+    expenses.forEach((e) => {
+      const y = e.date.split('-')[0];
+      if (y) years.add(y);
+    });
+    purchases.forEach((p) => {
+      const y = p.date.split('-')[0];
+      if (y) years.add(y);
+    });
     years.add(String(new Date().getFullYear()));
     return Array.from(years).sort().reverse();
-  }, [sales]);
+  }, [sales, expenses, purchases]);
 
-  // Filtered sales records according to selected criteria
+  // Filtered sales records
   const filteredSales = useMemo(() => {
     return sales.filter((record) => {
-      // Specific custom date range
       if (startDate && record.date < startDate) return false;
       if (endDate && record.date > endDate) return false;
-
-      // Year filter
-      if (selectedYear !== 'all' && !record.date.startsWith(selectedYear)) {
-        return false;
-      }
-
-      // Month filter
+      if (selectedYear !== 'all' && !record.date.startsWith(selectedYear)) return false;
       if (selectedMonth !== 'all') {
         const m = record.date.split('-')[1];
         if (m !== selectedMonth) return false;
       }
-
-      // Day of Week filter
       if (selectedDayOfWeek !== 'all') {
         const [year, month, day] = record.date.split('-').map(Number);
         const dateObj = new Date(year, month - 1, day);
         if (String(dateObj.getDay()) !== selectedDayOfWeek) return false;
       }
-
       return true;
     });
   }, [sales, selectedYear, selectedMonth, selectedDayOfWeek, startDate, endDate]);
+
+  // Filtered Expenses
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((record) => {
+      if (startDate && record.date < startDate) return false;
+      if (endDate && record.date > endDate) return false;
+      if (selectedYear !== 'all' && !record.date.startsWith(selectedYear)) return false;
+      if (selectedMonth !== 'all') {
+        const m = record.date.split('-')[1];
+        if (m !== selectedMonth) return false;
+      }
+      if (selectedDayOfWeek !== 'all') {
+        const [year, month, day] = record.date.split('-').map(Number);
+        const dateObj = new Date(year, month - 1, day);
+        if (String(dateObj.getDay()) !== selectedDayOfWeek) return false;
+      }
+      return true;
+    });
+  }, [expenses, selectedYear, selectedMonth, selectedDayOfWeek, startDate, endDate]);
+
+  // Filtered Purchases
+  const filteredPurchases = useMemo(() => {
+    return purchases.filter((record) => {
+      if (startDate && record.date < startDate) return false;
+      if (endDate && record.date > endDate) return false;
+      if (selectedYear !== 'all' && !record.date.startsWith(selectedYear)) return false;
+      if (selectedMonth !== 'all') {
+        const m = record.date.split('-')[1];
+        if (m !== selectedMonth) return false;
+      }
+      if (selectedDayOfWeek !== 'all') {
+        const [year, month, day] = record.date.split('-').map(Number);
+        const dateObj = new Date(year, month - 1, day);
+        if (String(dateObj.getDay()) !== selectedDayOfWeek) return false;
+      }
+      return true;
+    });
+  }, [purchases, selectedYear, selectedMonth, selectedDayOfWeek, startDate, endDate]);
 
   // Summary Metrics
   const summary = useMemo(() => {
@@ -88,7 +134,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
     const avgDailySales = count > 0 ? Math.round(totalSales / count) : 0;
     const avgDailyProfit = count > 0 ? Math.round(totalProfit / count) : 0;
 
-    // Peak sales day
+    const totalExpenses = filteredExpenses.reduce((acc, e) => acc + e.amount, 0);
+    const totalPurchases = filteredPurchases.reduce((acc, p) => acc + p.amount, 0);
+    const actualNetProfit = totalSales - totalPurchases - totalExpenses;
+
     let peakRecord: SalesRecord | null = null;
     filteredSales.forEach((s) => {
       if (!peakRecord || s.total > peakRecord.total) {
@@ -102,17 +151,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
       totalOnline,
       totalProfit,
       totalCogs,
+      totalExpenses,
+      totalPurchases,
+      actualNetProfit,
       count,
       avgDailySales,
       avgDailyProfit,
       peakRecord,
     };
-  }, [filteredSales]);
+  }, [filteredSales, filteredExpenses, filteredPurchases]);
 
   // Monthly Aggregated Data
   const monthlyAggregates = useMemo(() => {
     const map = new Map<string, {
-      monthKey: string; // "2026-08"
+      monthKey: string;
       year: string;
       monthNum: string;
       monthName: string;
@@ -121,10 +173,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
       total: number;
       profit: number;
       cogs: number;
+      purchases: number;
+      expenses: number;
+      actualNet: number;
       daysCount: number;
       records: SalesRecord[];
     }>();
 
+    // Add sales
     filteredSales.forEach((r) => {
       const parts = r.date.split('-');
       const y = parts[0];
@@ -144,6 +200,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
           total: 0,
           profit: 0,
           cogs: 0,
+          purchases: 0,
+          expenses: 0,
+          actualNet: 0,
           daysCount: 0,
           records: [],
         });
@@ -159,8 +218,77 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
       entry.records.push(r);
     });
 
+    // Add purchases
+    filteredPurchases.forEach((p) => {
+      const parts = p.date.split('-');
+      const y = parts[0];
+      const m = parts[1];
+      const key = `${y}-${m}`;
+      const monthIndex = parseInt(m, 10) - 1;
+      const mName = MONTH_NAMES[monthIndex] || m;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          monthKey: key,
+          year: y,
+          monthNum: m,
+          monthName: mName,
+          cash: 0,
+          online: 0,
+          total: 0,
+          profit: 0,
+          cogs: 0,
+          purchases: 0,
+          expenses: 0,
+          actualNet: 0,
+          daysCount: 0,
+          records: [],
+        });
+      }
+
+      const entry = map.get(key)!;
+      entry.purchases += p.amount;
+    });
+
+    // Add expenses
+    filteredExpenses.forEach((e) => {
+      const parts = e.date.split('-');
+      const y = parts[0];
+      const m = parts[1];
+      const key = `${y}-${m}`;
+      const monthIndex = parseInt(m, 10) - 1;
+      const mName = MONTH_NAMES[monthIndex] || m;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          monthKey: key,
+          year: y,
+          monthNum: m,
+          monthName: mName,
+          cash: 0,
+          online: 0,
+          total: 0,
+          profit: 0,
+          cogs: 0,
+          purchases: 0,
+          expenses: 0,
+          actualNet: 0,
+          daysCount: 0,
+          records: [],
+        });
+      }
+
+      const entry = map.get(key)!;
+      entry.expenses += e.amount;
+    });
+
+    // Calculate actualNet
+    map.forEach((entry) => {
+      entry.actualNet = entry.total - entry.purchases - entry.expenses;
+    });
+
     return Array.from(map.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
-  }, [filteredSales]);
+  }, [filteredSales, filteredPurchases, filteredExpenses]);
 
   // Yearly Aggregated Data
   const yearlyAggregates = useMemo(() => {
@@ -171,15 +299,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
       total: number;
       profit: number;
       cogs: number;
+      purchases: number;
+      expenses: number;
+      actualNet: number;
       daysCount: number;
-      monthlyMap: Map<string, number>;
     }>();
 
-    // In yearly mode, we aggregate all records matching year/day filters
     filteredSales.forEach((r) => {
       const y = r.date.split('-')[0];
-      const m = r.date.split('-')[1];
-
       if (!map.has(y)) {
         map.set(y, {
           year: y,
@@ -188,11 +315,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
           total: 0,
           profit: 0,
           cogs: 0,
+          purchases: 0,
+          expenses: 0,
+          actualNet: 0,
           daysCount: 0,
-          monthlyMap: new Map(),
         });
       }
-
       const entry = map.get(y)!;
       entry.cash += r.cash;
       entry.online += r.online;
@@ -200,17 +328,62 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
       entry.profit += r.profit;
       entry.cogs += r.cogs;
       entry.daysCount += 1;
-      entry.monthlyMap.set(m, (entry.monthlyMap.get(m) || 0) + r.total);
+    });
+
+    filteredPurchases.forEach((p) => {
+      const y = p.date.split('-')[0];
+      if (!map.has(y)) {
+        map.set(y, {
+          year: y,
+          cash: 0,
+          online: 0,
+          total: 0,
+          profit: 0,
+          cogs: 0,
+          purchases: 0,
+          expenses: 0,
+          actualNet: 0,
+          daysCount: 0,
+        });
+      }
+      map.get(y)!.purchases += p.amount;
+    });
+
+    filteredExpenses.forEach((e) => {
+      const y = e.date.split('-')[0];
+      if (!map.has(y)) {
+        map.set(y, {
+          year: y,
+          cash: 0,
+          online: 0,
+          total: 0,
+          profit: 0,
+          cogs: 0,
+          purchases: 0,
+          expenses: 0,
+          actualNet: 0,
+          daysCount: 0,
+        });
+      }
+      map.get(y)!.expenses += e.amount;
+    });
+
+    map.forEach((entry) => {
+      entry.actualNet = entry.total - entry.purchases - entry.expenses;
     });
 
     return Array.from(map.values()).sort((a, b) => b.year.localeCompare(a.year));
-  }, [filteredSales]);
+  }, [filteredSales, filteredPurchases, filteredExpenses]);
 
   const handleExport = () => {
-    const filename = `Pick_N_Eat_${reportType.toUpperCase()}_Report_${selectedYear}_${
-      selectedMonth !== 'all' ? selectedMonth : 'All'
-    }.xlsx`;
-    exportSalesToExcel(filteredSales, filename);
+    if (reportType === 'pnl') {
+      exportComprehensiveReportToExcel(filteredSales, filteredPurchases, filteredExpenses);
+    } else {
+      const filename = `Pick_N_Eat_${reportType.toUpperCase()}_Report_${selectedYear}_${
+        selectedMonth !== 'all' ? selectedMonth : 'All'
+      }.xlsx`;
+      exportSalesToExcel(filteredSales, filename);
+    }
   };
 
   const handlePrint = () => {
@@ -224,10 +397,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center space-x-2">
             <BarChart3 className="w-6 h-6 text-blue-600" />
-            <span>Sales &amp; Profit Reports</span>
+            <span>Sales &amp; Financial Reports</span>
           </h1>
           <p className="text-xs sm:text-sm text-slate-500">
-            Select any Month, Year, Day of Week, or Date to inspect sales, 20% profit, and 80% COGS.
+            Analyze daily, monthly, yearly sales, custom expenses, raw material purchases, and net profit.
           </p>
         </div>
 
@@ -235,7 +408,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
         <div className="flex items-center space-x-2">
           <button
             onClick={handlePrint}
-            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
           >
             <Printer className="w-4 h-4 text-slate-600" />
             <span>Print</span>
@@ -243,8 +416,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
 
           <button
             onClick={handleExport}
-            disabled={filteredSales.length === 0}
-            className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs sm:text-sm shadow-xs transition-all disabled:opacity-50"
+            disabled={filteredSales.length === 0 && filteredPurchases.length === 0 && filteredExpenses.length === 0}
+            className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs sm:text-sm shadow-xs transition-all disabled:opacity-50 cursor-pointer"
           >
             <Download className="w-4 h-4" />
             <span>Export Report (.xlsx)</span>
@@ -252,39 +425,50 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
         </div>
       </div>
 
-      {/* Report Type Selector Tabs (Daily, Monthly, Yearly) */}
-      <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80 max-w-md">
+      {/* Report Type Selector Tabs (Daily, Monthly, Yearly, P&L Statement) */}
+      <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80 max-w-xl">
         <button
           onClick={() => setReportType('daily')}
-          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all ${
+          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer ${
             reportType === 'daily'
               ? 'bg-white text-slate-900 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          Daily Sales Report
+          Daily Sales
         </button>
 
         <button
           onClick={() => setReportType('monthly')}
-          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all ${
+          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer ${
             reportType === 'monthly'
               ? 'bg-white text-slate-900 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          Monthly Report
+          Monthly
         </button>
 
         <button
           onClick={() => setReportType('yearly')}
-          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all ${
+          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer ${
             reportType === 'yearly'
               ? 'bg-white text-slate-900 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          Yearly Report
+          Yearly
+        </button>
+
+        <button
+          onClick={() => setReportType('pnl')}
+          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-1 ${
+            reportType === 'pnl'
+              ? 'bg-white text-amber-900 shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <span>P&amp;L Overview</span>
         </button>
       </div>
 
@@ -399,7 +583,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
                 setStartDate('');
                 setEndDate('');
               }}
-              className="text-amber-600 hover:text-amber-700 font-semibold"
+              className="text-amber-600 hover:text-amber-700 font-semibold cursor-pointer"
             >
               Reset Filters
             </button>
@@ -423,12 +607,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
           </div>
         </div>
 
-        {/* Total Profit */}
+        {/* Total Profit (20%) */}
         <div className="bg-emerald-50/80 p-4 sm:p-5 rounded-2xl border border-emerald-200 shadow-2xs">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center space-x-1">
               <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Net Profit (20%)</span>
+              <span>Base Profit (20%)</span>
             </span>
             <span className="text-xs font-bold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
               20%
@@ -438,49 +622,43 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
             {formatINR(summary.totalProfit)}
           </div>
           <div className="mt-2 text-xs text-emerald-700 border-t border-emerald-200/60 pt-2 font-medium">
-            Avg Daily Profit: {formatINR(summary.avgDailyProfit)}
+            COGS 80%: {formatINR(summary.totalCogs)}
           </div>
         </div>
 
-        {/* Cost of Goods */}
-        <div className="bg-blue-50/80 p-4 sm:p-5 rounded-2xl border border-blue-200 shadow-2xs">
+        {/* Total Purchases & Expenses */}
+        <div className="bg-indigo-50/80 p-4 sm:p-5 rounded-2xl border border-indigo-200 shadow-2xs">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-blue-800 uppercase tracking-wider flex items-center space-x-1">
-              <PackageCheck className="w-3.5 h-3.5 text-blue-600" />
-              <span>Cost of Goods (80%)</span>
-            </span>
-            <span className="text-xs font-bold bg-blue-200 text-blue-900 px-2 py-0.5 rounded-full">
-              80%
+            <span className="text-xs font-bold text-indigo-800 uppercase tracking-wider flex items-center space-x-1">
+              <ShoppingBag className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Purchases &amp; Expenses</span>
             </span>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-blue-800">
-            {formatINR(summary.totalCogs)}
+          <div className="text-2xl sm:text-3xl font-black text-indigo-900">
+            {formatINR(summary.totalPurchases + summary.totalExpenses)}
           </div>
-          <div className="mt-2 text-xs text-blue-700 border-t border-blue-200/60 pt-2 font-medium">
-            Stock, ingredients &amp; supplies
+          <div className="mt-2 text-xs text-indigo-700 border-t border-indigo-200/60 pt-2 font-medium flex justify-between">
+            <span>Purchases: <strong>{formatINR(summary.totalPurchases)}</strong></span>
+            <span>Expenses: <strong>{formatINR(summary.totalExpenses)}</strong></span>
           </div>
         </div>
 
-        {/* Activity & Peak Day */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
+        {/* Net Actual Margin */}
+        <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-4 sm:p-5 rounded-2xl shadow-2xs flex flex-col justify-between">
           <div>
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Days Logged &amp; Average
+            <div className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-1">
+              Net Balance / Cash Flow
             </div>
-            <div className="text-xl sm:text-2xl font-extrabold text-slate-900">
-              {summary.count} Days
+            <div className={`text-2xl sm:text-3xl font-black ${summary.actualNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {formatINR(summary.actualNetProfit)}
             </div>
-            <div className="text-xs text-slate-500 mt-1">
-              Daily Avg Sales: <strong className="text-slate-800">{formatINR(summary.avgDailySales)}</strong>
+            <div className="text-xs text-slate-300 mt-1">
+              Sales - Purchases - Expenses
             </div>
           </div>
           {summary.peakRecord && (
-            <div className="mt-2 text-[11px] bg-amber-50 p-2 rounded-xl text-amber-900 border border-amber-200/80">
-              <span className="font-bold flex items-center space-x-1">
-                <Award className="w-3 h-3 text-amber-600" />
-                <span>Peak Sales Day:</span>
-              </span>
-              <span>{formatDateDisplay(summary.peakRecord.date)} ({formatINR(summary.peakRecord.total)})</span>
+            <div className="mt-2 text-[11px] text-slate-300">
+              Peak Day: {formatDateDisplay(summary.peakRecord.date)} ({formatINR(summary.peakRecord.total)})
             </div>
           )}
         </div>
@@ -519,7 +697,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
                     <th className="px-4 py-3.5">Notes</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-800">
+                <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
                   {filteredSales.map((record) => (
                     <tr key={record.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-5 py-3.5 font-bold text-slate-900 whitespace-nowrap">
@@ -609,7 +787,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
                     <th className="px-4 py-3.5">Avg / Day</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-800">
+                <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
                   {monthlyAggregates.map((m) => (
                     <tr key={m.monthKey} className="hover:bg-slate-50 transition-colors">
                       <td className="px-5 py-3.5 font-bold text-slate-900 whitespace-nowrap">
@@ -681,7 +859,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
                     <th className="px-4 py-3.5">Daily Avg</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-800">
+                <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
                   {yearlyAggregates.map((y) => (
                     <tr key={y.year} className="hover:bg-slate-50 transition-colors">
                       <td className="px-5 py-3.5 font-bold text-slate-900 text-base whitespace-nowrap">
@@ -714,6 +892,85 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ sales }) => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* VIEW 4: COMPREHENSIVE P&L STATEMENT (SALES, PURCHASES, EXPENSES) */}
+      {reportType === 'pnl' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-200/80 flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">
+                Monthly Profit &amp; Loss Statement (Sales vs Purchases &amp; Expenses)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Comparison of Gross Revenue, Raw Material Purchases, Operating Expenses, and Net Balance
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 font-bold text-xs uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="px-5 py-3.5">Month</th>
+                  <th className="px-4 py-3.5 text-slate-900">Sales (A)</th>
+                  <th className="px-4 py-3.5 text-indigo-700">Purchases (B)</th>
+                  <th className="px-4 py-3.5 text-rose-700">Expenses (C)</th>
+                  <th className="px-4 py-3.5 text-slate-900">Net Balance (A - B - C)</th>
+                  <th className="px-4 py-3.5 text-emerald-700">20% Guideline Profit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
+                {monthlyAggregates.map((m) => (
+                  <tr key={m.monthKey} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3.5 font-bold text-slate-900 whitespace-nowrap">
+                      {m.monthName} {m.year}
+                    </td>
+                    <td className="px-4 py-3.5 font-black text-slate-900 whitespace-nowrap">
+                      {formatINR(m.total)}
+                    </td>
+                    <td className="px-4 py-3.5 font-bold text-indigo-700 whitespace-nowrap">
+                      {formatINR(m.purchases)}
+                    </td>
+                    <td className="px-4 py-3.5 font-bold text-rose-700 whitespace-nowrap">
+                      {formatINR(m.expenses)}
+                    </td>
+                    <td className="px-4 py-3.5 font-black whitespace-nowrap">
+                      <span className={m.actualNet >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'}>
+                        {formatINR(m.actualNet)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 font-semibold text-emerald-800 bg-emerald-50/30 whitespace-nowrap">
+                      {formatINR(m.profit)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-slate-900 text-white font-bold text-sm">
+                <tr>
+                  <td className="px-5 py-4 text-slate-300">
+                    Grand Total
+                  </td>
+                  <td className="px-4 py-4 text-white font-black text-base">
+                    {formatINR(summary.totalSales)}
+                  </td>
+                  <td className="px-4 py-4 text-indigo-300 font-black text-base">
+                    {formatINR(summary.totalPurchases)}
+                  </td>
+                  <td className="px-4 py-4 text-rose-300 font-black text-base">
+                    {formatINR(summary.totalExpenses)}
+                  </td>
+                  <td className="px-4 py-4 text-amber-300 font-black text-base">
+                    {formatINR(summary.actualNetProfit)}
+                  </td>
+                  <td className="px-4 py-4 text-emerald-300 font-black text-base">
+                    {formatINR(summary.totalProfit)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       )}
     </div>

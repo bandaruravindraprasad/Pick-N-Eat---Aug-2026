@@ -11,9 +11,35 @@ export interface SalesRecord {
   updatedAt: string;
 }
 
-export type ViewMode = 'dashboard' | 'daily' | 'reports' | 'import';
+export type PaymentMode = 'cash' | 'online' | 'other';
 
-export type ReportType = 'daily' | 'monthly' | 'yearly';
+export interface ExpenseRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  title: string; // Free-text name entered by user without any dropdown
+  amount: number;
+  paymentMode: PaymentMode;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  title: string; // Free-text name entered by user without any dropdown
+  amount: number;
+  paymentMode: PaymentMode;
+  quantity?: string; // e.g. "5 kg", "2 tins", "10 boxes" (optional free text)
+  supplier?: string; // e.g. "Market", "Dairy", "Metro" (optional free text)
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ViewMode = 'dashboard' | 'daily' | 'expenses' | 'purchases' | 'reports' | 'import';
+
+export type ReportType = 'daily' | 'monthly' | 'yearly' | 'pnl';
 
 export interface ReportFilter {
   date?: string;

@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   DuplicateAction,
+  ExpenseRecord,
+  PurchaseRecord,
   SalesRecord,
   ViewMode,
 } from './types';
@@ -8,27 +10,46 @@ import {
   getStoredSales,
   saveStoredSales,
   resetToPdfData,
+  getStoredExpenses,
+  saveStoredExpenses,
+  getStoredPurchases,
+  saveStoredPurchases,
 } from './utils/storage';
-import { exportSalesToExcel } from './utils/excelHelper';
+import { exportComprehensiveReportToExcel, exportSalesToExcel } from './utils/excelHelper';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { DailySalesView } from './components/DailySalesView';
+import { ExpensesView } from './components/ExpensesView';
+import { PurchasesView } from './components/PurchasesView';
 import { ReportsView } from './components/ReportsView';
 import { SalesModal } from './components/SalesModal';
+import { ExpenseModal } from './components/ExpenseModal';
+import { PurchaseModal } from './components/PurchaseModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ExcelImportModal } from './components/ExcelImportModal';
 import { CheckCircle, AlertCircle, X } from 'lucide-react';
 
 export default function App() {
+  // Core State
   const [sales, setSales] = useState<SalesRecord[]>(() => getStoredSales());
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>(() => getStoredExpenses());
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>(() => getStoredPurchases());
   const [currentView, setCurrentView] = useState<ViewMode>('dashboard');
 
-  // Modals
+  // Sales Modals
   const [isSalesModalOpen, setIsSalesModalOpen] = useState<boolean>(false);
   const [editingSale, setEditingSale] = useState<SalesRecord | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [saleToDelete, setSaleToDelete] = useState<SalesRecord | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+
+  // Expense Modals
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState<boolean>(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null);
+
+  // Purchase Modals
+  const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState<boolean>(false);
+  const [editingPurchase, setEditingPurchase] = useState<PurchaseRecord | null>(null);
 
   // Toast notification
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -40,20 +61,20 @@ export default function App() {
     }, 4000);
   };
 
-  // Save to localStorage whenever sales changes
+  // ----------------------------------------------------
+  // Sales Handlers
+  // ----------------------------------------------------
   const updateSalesList = (newSales: SalesRecord[]) => {
     setSales(newSales);
     saveStoredSales(newSales);
   };
 
-  // Quick Map of existing dates for O(1) duplicate lookups
   const existingDatesMap = useMemo(() => {
     const map = new Map<string, SalesRecord>();
     sales.forEach((s) => map.set(s.date, s));
     return map;
   }, [sales]);
 
-  // Handle Save / Edit Sale
   const handleSaveSale = (
     data: Omit<SalesRecord, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
@@ -61,7 +82,6 @@ export default function App() {
     const now = new Date().toISOString();
 
     if (existingId) {
-      // Update existing
       const updated = sales.map((s) => {
         if (s.id === existingId) {
           return {
@@ -75,7 +95,6 @@ export default function App() {
       updateSalesList(updated);
       showToast(`Sales entry for ${data.date} updated successfully!`);
     } else {
-      // Check if date already exists in list (safety check)
       const existing = sales.find((s) => s.date === data.date);
       if (existing) {
         const updated = sales.map((s) =>
@@ -103,7 +122,6 @@ export default function App() {
     }
   };
 
-  // Handle Delete Sale
   const handleConfirmDelete = () => {
     if (!saleToDelete) return;
     const filtered = sales.filter((s) => s.id !== saleToDelete.id);
@@ -112,12 +130,10 @@ export default function App() {
     setSaleToDelete(null);
   };
 
-  // Handle Excel Import
   const handleImportComplete = (importedRecords: SalesRecord[], mode: DuplicateAction) => {
     const map = new Map<string, SalesRecord>();
 
     if (mode === 'skip') {
-      // Existing records take precedence
       sales.forEach((s) => map.set(s.date, s));
       let addedCount = 0;
       importedRecords.forEach((r) => {
@@ -130,7 +146,6 @@ export default function App() {
       updateSalesList(combined);
       showToast(`Successfully imported ${addedCount} new sales records (duplicates skipped)!`);
     } else {
-      // Update mode: Existing first, then overwritten by imported
       sales.forEach((s) => map.set(s.date, s));
       importedRecords.forEach((r) => {
         map.set(r.date, r);
@@ -143,17 +158,95 @@ export default function App() {
     setCurrentView('daily');
   };
 
-  // Reset to original PDF records
   const handleResetData = () => {
     const records = resetToPdfData();
     setSales(records);
     showToast(`Reset to complete ${records.length} records from the PDF ledger.`);
   };
 
-  // Export all data
   const handleExportAll = () => {
-    exportSalesToExcel(sales, `Pick_N_Eat_All_Sales_${new Date().toISOString().split('T')[0]}.xlsx`);
-    showToast('Exported all sales records to Excel!');
+    exportComprehensiveReportToExcel(sales, purchases, expenses);
+    showToast('Exported complete financials (Sales, Purchases, Expenses) to Excel!');
+  };
+
+  // ----------------------------------------------------
+  // Expense Handlers
+  // ----------------------------------------------------
+  const updateExpensesList = (newExpenses: ExpenseRecord[]) => {
+    setExpenses(newExpenses);
+    saveStoredExpenses(newExpenses);
+  };
+
+  const handleSaveExpense = (
+    data: Omit<ExpenseRecord, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => {
+    const now = new Date().toISOString();
+
+    if (existingId) {
+      const updated = expenses.map((e) =>
+        e.id === existingId ? { ...e, ...data, updatedAt: now } : e
+      );
+      updateExpensesList(updated);
+      showToast(`Expense "${data.title}" updated successfully!`);
+    } else {
+      const newRecord: ExpenseRecord = {
+        id: `exp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        ...data,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const updated = [newRecord, ...expenses];
+      updateExpensesList(updated);
+      showToast(`Expense "${data.title}" added successfully!`);
+    }
+  };
+
+  const handleDeleteExpense = (id: string) => {
+    const target = expenses.find((e) => e.id === id);
+    const updated = expenses.filter((e) => e.id !== id);
+    updateExpensesList(updated);
+    showToast(`Expense "${target?.title || ''}" was deleted.`);
+  };
+
+  // ----------------------------------------------------
+  // Purchase Handlers
+  // ----------------------------------------------------
+  const updatePurchasesList = (newPurchases: PurchaseRecord[]) => {
+    setPurchases(newPurchases);
+    saveStoredPurchases(newPurchases);
+  };
+
+  const handleSavePurchase = (
+    data: Omit<PurchaseRecord, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => {
+    const now = new Date().toISOString();
+
+    if (existingId) {
+      const updated = purchases.map((p) =>
+        p.id === existingId ? { ...p, ...data, updatedAt: now } : p
+      );
+      updatePurchasesList(updated);
+      showToast(`Purchase "${data.itemName}" updated successfully!`);
+    } else {
+      const newRecord: PurchaseRecord = {
+        id: `pur_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        ...data,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const updated = [newRecord, ...purchases];
+      updatePurchasesList(updated);
+      showToast(`Purchase "${data.itemName}" logged successfully!`);
+    }
+  };
+
+  const handleDeletePurchase = (id: string) => {
+    const target = purchases.find((p) => p.id === id);
+    const updated = purchases.filter((p) => p.id !== id);
+    updatePurchasesList(updated);
+    showToast(`Purchase "${target?.itemName || ''}" was deleted.`);
   };
 
   return (
@@ -174,7 +267,7 @@ export default function App() {
             <span>{toast.message}</span>
             <button
               onClick={() => setToast(null)}
-              className="p-1 hover:bg-white/20 rounded-lg transition-colors ml-2"
+              className="p-1 hover:bg-white/20 rounded-lg transition-colors ml-2 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -196,9 +289,19 @@ export default function App() {
           setEditingSale(null);
           setIsSalesModalOpen(true);
         }}
+        onOpenAddExpenseModal={() => {
+          setEditingExpense(null);
+          setIsExpenseModalOpen(true);
+        }}
+        onOpenAddPurchaseModal={() => {
+          setEditingPurchase(null);
+          setIsPurchaseModalOpen(true);
+        }}
         onExportAll={handleExportAll}
         onResetData={handleResetData}
         totalRecordsCount={sales.length}
+        totalExpensesCount={expenses.length}
+        totalPurchasesCount={purchases.length}
       />
 
       {/* View Content */}
@@ -206,9 +309,19 @@ export default function App() {
         {currentView === 'dashboard' && (
           <DashboardView
             sales={sales}
-            onOpenAddModal={() => {
+            expenses={expenses}
+            purchases={purchases}
+            onOpenAddSaleModal={() => {
               setEditingSale(null);
               setIsSalesModalOpen(true);
+            }}
+            onOpenAddExpenseModal={() => {
+              setEditingExpense(null);
+              setIsExpenseModalOpen(true);
+            }}
+            onOpenAddPurchaseModal={() => {
+              setEditingPurchase(null);
+              setIsPurchaseModalOpen(true);
             }}
             onEditSale={(sale) => {
               setEditingSale(sale);
@@ -242,10 +355,46 @@ export default function App() {
           />
         )}
 
-        {currentView === 'reports' && <ReportsView sales={sales} />}
+        {currentView === 'expenses' && (
+          <ExpensesView
+            expenses={expenses}
+            onOpenAddModal={() => {
+              setEditingExpense(null);
+              setIsExpenseModalOpen(true);
+            }}
+            onEditExpense={(expense) => {
+              setEditingExpense(expense);
+              setIsExpenseModalOpen(true);
+            }}
+            onDeleteExpense={handleDeleteExpense}
+          />
+        )}
+
+        {currentView === 'purchases' && (
+          <PurchasesView
+            purchases={purchases}
+            onOpenAddModal={() => {
+              setEditingPurchase(null);
+              setIsPurchaseModalOpen(true);
+            }}
+            onEditPurchase={(purchase) => {
+              setEditingPurchase(purchase);
+              setIsPurchaseModalOpen(true);
+            }}
+            onDeletePurchase={handleDeletePurchase}
+          />
+        )}
+
+        {currentView === 'reports' && (
+          <ReportsView
+            sales={sales}
+            expenses={expenses}
+            purchases={purchases}
+          />
+        )}
       </main>
 
-      {/* Modals */}
+      {/* Sales Modal */}
       <SalesModal
         isOpen={isSalesModalOpen}
         onClose={() => {
@@ -257,6 +406,29 @@ export default function App() {
         existingDates={existingDatesMap}
       />
 
+      {/* Expense Modal (Free text name input) */}
+      <ExpenseModal
+        isOpen={isExpenseModalOpen}
+        onClose={() => {
+          setIsExpenseModalOpen(false);
+          setEditingExpense(null);
+        }}
+        onSave={handleSaveExpense}
+        initialData={editingExpense}
+      />
+
+      {/* Purchase Modal (Free text name input) */}
+      <PurchaseModal
+        isOpen={isPurchaseModalOpen}
+        onClose={() => {
+          setIsPurchaseModalOpen(false);
+          setEditingPurchase(null);
+        }}
+        onSave={handleSavePurchase}
+        initialData={editingPurchase}
+      />
+
+      {/* Delete Sales Record Confirmation */}
       <DeleteConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => {
@@ -267,6 +439,7 @@ export default function App() {
         record={saleToDelete}
       />
 
+      {/* Excel Import Modal */}
       <ExcelImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}

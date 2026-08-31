@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { ImportParsedRow, SalesRecord } from '../types';
+import { ExpenseRecord, ImportParsedRow, PurchaseRecord, SalesRecord } from '../types';
 import { calculateSalesBreakdown } from './formatters';
 
 /**
@@ -268,5 +268,115 @@ export function exportSalesToExcel(records: SalesRecord[], fileName = 'Pick_N_Ea
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Sales Records');
+  XLSX.writeFile(workbook, fileName);
+}
+
+/**
+ * Export expenses records to an Excel file
+ */
+export function exportExpensesToExcel(records: ExpenseRecord[], fileName = 'Pick_N_Eat_Expenses_Report.xlsx'): void {
+  const data = records.map((r) => ({
+    'Date': r.date,
+    'Expense Item / Name': r.title,
+    'Amount (₹)': r.amount,
+    'Payment Mode': r.paymentMode.toUpperCase(),
+    'Notes': r.notes || ''
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  worksheet['!cols'] = [
+    { wch: 14 },
+    { wch: 30 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 30 }
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Expenses');
+  XLSX.writeFile(workbook, fileName);
+}
+
+/**
+ * Export purchases records to an Excel file
+ */
+export function exportPurchasesToExcel(records: PurchaseRecord[], fileName = 'Pick_N_Eat_Purchases_Report.xlsx'): void {
+  const data = records.map((r) => ({
+    'Date': r.date,
+    'Purchase Item / Name': r.title,
+    'Amount (₹)': r.amount,
+    'Payment Mode': r.paymentMode.toUpperCase(),
+    'Quantity / Unit': r.quantity || '',
+    'Supplier / Vendor': r.supplier || '',
+    'Notes': r.notes || ''
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  worksheet['!cols'] = [
+    { wch: 14 },
+    { wch: 30 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 30 }
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Purchases');
+  XLSX.writeFile(workbook, fileName);
+}
+
+/**
+ * Comprehensive multi-sheet workbook export (Sales, Purchases, Expenses)
+ */
+export function exportComprehensiveReportToExcel(
+  sales: SalesRecord[],
+  purchases: PurchaseRecord[],
+  expenses: ExpenseRecord[],
+  fileName = 'Pick_N_Eat_Complete_Ledger.xlsx'
+): void {
+  const workbook = XLSX.utils.book_new();
+
+  // 1. Sales Sheet
+  const salesData = sales.map((r) => ({
+    'Date': r.date,
+    'Cash (₹)': r.cash,
+    'Online (₹)': r.online,
+    'Total Sales (₹)': r.total,
+    'Profit 20% (₹)': r.profit,
+    'Cost of Goods 80% (₹)': r.cogs,
+    'Notes': r.notes || ''
+  }));
+  const salesWs = XLSX.utils.json_to_sheet(salesData);
+  salesWs['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 30 }];
+  XLSX.utils.book_append_sheet(workbook, salesWs, 'Sales');
+
+  // 2. Purchases Sheet
+  const purchasesData = purchases.map((r) => ({
+    'Date': r.date,
+    'Purchase Item': r.title,
+    'Amount (₹)': r.amount,
+    'Payment Mode': r.paymentMode.toUpperCase(),
+    'Quantity': r.quantity || '',
+    'Supplier': r.supplier || '',
+    'Notes': r.notes || ''
+  }));
+  const purchasesWs = XLSX.utils.json_to_sheet(purchasesData);
+  purchasesWs['!cols'] = [{ wch: 14 }, { wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 30 }];
+  XLSX.utils.book_append_sheet(workbook, purchasesWs, 'Purchases');
+
+  // 3. Expenses Sheet
+  const expensesData = expenses.map((r) => ({
+    'Date': r.date,
+    'Expense Item': r.title,
+    'Amount (₹)': r.amount,
+    'Payment Mode': r.paymentMode.toUpperCase(),
+    'Notes': r.notes || ''
+  }));
+  const expensesWs = XLSX.utils.json_to_sheet(expensesData);
+  expensesWs['!cols'] = [{ wch: 14 }, { wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 30 }];
+  XLSX.utils.book_append_sheet(workbook, expensesWs, 'Expenses');
+
   XLSX.writeFile(workbook, fileName);
 }
