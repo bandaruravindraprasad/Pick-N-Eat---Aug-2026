@@ -12,6 +12,9 @@ import {
   ChevronDown,
   Receipt,
   ShoppingBag,
+  Cloud,
+  CloudOff,
+  RefreshCw,
 } from 'lucide-react';
 import { ViewMode } from '../types';
 import { downloadSampleExcelTemplate } from '../utils/excelHelper';
@@ -27,6 +30,7 @@ interface NavbarProps {
   totalRecordsCount: number;
   totalExpensesCount: number;
   totalPurchasesCount: number;
+  syncStatus?: 'synced' | 'syncing' | 'offline';
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -40,6 +44,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   totalRecordsCount,
   totalExpensesCount,
   totalPurchasesCount,
+  syncStatus = 'synced',
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -65,6 +70,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-emerald-100 text-emerald-800">
                     Tracker
                   </span>
+                  {syncStatus === 'syncing' && (
+                    <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200/60" title="Syncing with Firestore Cloud Database">
+                      <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
+                      <span>Syncing</span>
+                    </span>
+                  )}
+                  {syncStatus === 'synced' && (
+                    <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60" title="Connected to Firestore Cloud Database">
+                      <Cloud className="w-3 h-3 text-emerald-600" />
+                      <span>Cloud Synced</span>
+                    </span>
+                  )}
+                  {syncStatus === 'offline' && (
+                    <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200" title="Offline Mode - Local Storage Active">
+                      <CloudOff className="w-3 h-3 text-slate-400" />
+                      <span>Offline</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] sm:text-xs text-slate-500 hidden sm:block">
                   Daily Sales, Purchases, Expenses &amp; Profit

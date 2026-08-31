@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "sales": {
+      "title": "Daily Sales Record",
+      "description": "Daily sales tracking entries including cash, online, total, profit (20%), and cogs (80%)",
+      "fields": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "date": { "type": "string", "description": "Date in YYYY-MM-DD format" },
+        "cash": { "type": "number", "description": "Cash sales amount" },
+        "online": { "type": "number", "description": "Online sales amount" },
+        "total": { "type": "number", "description": "Total sales amount" },
+        "profit": { "type": "number", "description": "Calculated profit (20%)" },
+        "cogs": { "type": "number", "description": "Cost of Goods Sold (80%)" },
+        "notes": { "type": "string", "description": "Optional notes or remarks" },
+        "createdAt": { "type": "string", "description": "ISO timestamp of creation" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
+      }
+    },
+    "expenses": {
+      "title": "Shop Expense Record",
+      "description": "Shop operating expenses like electricity, rent, maintenance, wages, etc.",
+      "fields": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "date": { "type": "string", "description": "Date in YYYY-MM-DD format" },
+        "title": { "type": "string", "description": "Expense title or item description" },
+        "category": { "type": "string", "description": "Category of the expense" },
+        "amount": { "type": "number", "description": "Expense amount" },
+        "paymentMethod": { "type": "string", "description": "Payment method (cash/online)" },
+        "notes": { "type": "string", "description": "Optional notes" },
+        "createdAt": { "type": "string", "description": "ISO timestamp of creation" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
+      }
+    },
+    "purchases": {
+      "title": "Inventory Purchase Record",
+      "description": "Stock and raw materials purchases for the shop",
+      "fields": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "date": { "type": "string", "description": "Date in YYYY-MM-DD format" },
+        "title": { "type": "string", "description": "Item or stock description" },
+        "category": { "type": "string", "description": "Category of inventory" },
+        "amount": { "type": "number", "description": "Purchase cost amount" },
+        "paymentMethod": { "type": "string", "description": "Payment method (cash/online)" },
+        "supplier": { "type": "string", "description": "Supplier or vendor name" },
+        "notes": { "type": "string", "description": "Optional notes" },
+        "createdAt": { "type": "string", "description": "ISO timestamp of creation" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
+      }
+    }
+  }
+}

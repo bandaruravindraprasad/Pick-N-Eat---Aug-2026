@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   DuplicateAction,
   ExpenseRecord,
@@ -9,13 +9,25 @@ import {
 import {
   getStoredSales,
   saveStoredSales,
-  resetToPdfData,
   getStoredExpenses,
   saveStoredExpenses,
   getStoredPurchases,
   saveStoredPurchases,
 } from './utils/storage';
-import { exportComprehensiveReportToExcel, exportSalesToExcel } from './utils/excelHelper';
+import {
+  subscribeToSales,
+  subscribeToExpenses,
+  subscribeToPurchases,
+  saveSaleToFirestore,
+  deleteSaleFromFirestore,
+  saveExpenseToFirestore,
+  deleteExpenseFromFirestore,
+  savePurchaseToFirestore,
+  deletePurchaseFromFirestore,
+  seedSalesBatch,
+  resetSalesToPdfInFirestore,
+} from './utils/firebaseService';
+import { exportComprehensiveReportToExcel } from './utils/excelHelper';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { DailySalesView } from './components/DailySalesView';
@@ -35,6 +47,7 @@ export default function App() {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>(() => getStoredExpenses());
   const [purchases, setPurchases] = useState<PurchaseRecord[]>(() => getStoredPurchases());
   const [currentView, setCurrentView] = useState<ViewMode>('dashboard');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('syncing');
 
   // Sales Modals
   const [isSalesModalOpen, setIsSalesModalOpen] = useState<boolean>(false);
@@ -62,106 +75,171 @@ export default function App() {
   };
 
   // ----------------------------------------------------
+  // Real-time Firestore Subscriptions
+  // ----------------------------------------------------
+  useEffect(() => {
+    setSyncStatus('syncing');
+
+    const unsubSales = subscribeToSales(
+      (records) => {
+        setSales(records);
+        setSyncStatus('synced');
+      },
+      () => {
+        setSyncStatus('offline');
+      }
+    );
+
+    const unsubExpenses = subscribeToExpenses(
+      (records) => {
+        setExpenses(records);
+      },
+      () => {
+        setSyncStatus('offline');
+      }
+    );
+
+    const unsubPurchases = subscribeToPurchases(
+      (records) => {
+        setPurchases(records);
+      },
+      () => {
+        setSyncStatus('offline');
+      }
+    );
+
+    return () => {
+      unsubSales();
+      unsubExpenses();
+      unsubPurchases();
+    };
+  }, []);
+
+  // ----------------------------------------------------
   // Sales Handlers
   // ----------------------------------------------------
-  const updateSalesList = (newSales: SalesRecord[]) => {
-    setSales(newSales);
-    saveStoredSales(newSales);
-  };
-
   const existingDatesMap = useMemo(() => {
     const map = new Map<string, SalesRecord>();
     sales.forEach((s) => map.set(s.date, s));
     return map;
   }, [sales]);
 
-  const handleSaveSale = (
+  const handleSaveSale = async (
     data: Omit<SalesRecord, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
   ) => {
     const now = new Date().toISOString();
+    let recordToSave: SalesRecord;
 
     if (existingId) {
-      const updated = sales.map((s) => {
-        if (s.id === existingId) {
-          return {
-            ...s,
-            ...data,
-            updatedAt: now,
-          };
-        }
-        return s;
-      });
-      updateSalesList(updated);
+      const existing = sales.find((s) => s.id === existingId);
+      recordToSave = {
+        id: existingId,
+        ...data,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      // Optimistic update
+      const updated = sales.map((s) => (s.id === existingId ? recordToSave : s));
+      setSales(updated);
+      saveStoredSales(updated);
       showToast(`Sales entry for ${data.date} updated successfully!`);
     } else {
-      const existing = sales.find((s) => s.date === data.date);
-      if (existing) {
-        const updated = sales.map((s) =>
-          s.date === data.date
-            ? {
-                ...s,
-                ...data,
-                updatedAt: now,
-              }
-            : s
-        );
-        updateSalesList(updated);
+      const existingByDate = sales.find((s) => s.date === data.date);
+      if (existingByDate) {
+        recordToSave = {
+          ...existingByDate,
+          ...data,
+          updatedAt: now,
+        };
+        const updated = sales.map((s) => (s.date === data.date ? recordToSave : s));
+        setSales(updated);
+        saveStoredSales(updated);
         showToast(`Sales entry for ${data.date} updated successfully!`);
       } else {
-        const newRecord: SalesRecord = {
+        recordToSave = {
           id: `rec_${data.date}_${Date.now()}`,
           ...data,
           createdAt: now,
           updatedAt: now,
         };
-        const updated = [newRecord, ...sales];
-        updateSalesList(updated);
+        const updated = [recordToSave, ...sales];
+        setSales(updated);
+        saveStoredSales(updated);
         showToast(`Daily sale for ${data.date} saved successfully!`);
       }
     }
+
+    try {
+      await saveSaleToFirestore(recordToSave);
+    } catch (err) {
+      console.error('Failed to sync sale to Firestore:', err);
+    }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!saleToDelete) return;
-    const filtered = sales.filter((s) => s.id !== saleToDelete.id);
-    updateSalesList(filtered);
-    showToast(`Sales record for ${saleToDelete.date} was deleted.`);
+    const target = saleToDelete;
+    const filtered = sales.filter((s) => s.id !== target.id);
+    setSales(filtered);
+    saveStoredSales(filtered);
+    showToast(`Sales record for ${target.date} was deleted.`);
     setSaleToDelete(null);
+
+    try {
+      await deleteSaleFromFirestore(target.id);
+    } catch (err) {
+      console.error('Failed to delete sale from Firestore:', err);
+    }
   };
 
-  const handleImportComplete = (importedRecords: SalesRecord[], mode: DuplicateAction) => {
+  const handleImportComplete = async (importedRecords: SalesRecord[], mode: DuplicateAction) => {
     const map = new Map<string, SalesRecord>();
 
     if (mode === 'skip') {
       sales.forEach((s) => map.set(s.date, s));
       let addedCount = 0;
+      const toAdd: SalesRecord[] = [];
       importedRecords.forEach((r) => {
         if (!map.has(r.date)) {
           map.set(r.date, r);
+          toAdd.push(r);
           addedCount++;
         }
       });
       const combined = Array.from(map.values());
-      updateSalesList(combined);
-      showToast(`Successfully imported ${addedCount} new sales records (duplicates skipped)!`);
+      setSales(combined);
+      saveStoredSales(combined);
+      showToast(`Successfully imported ${addedCount} new sales records!`);
+
+      if (toAdd.length > 0) {
+        seedSalesBatch(toAdd).catch(console.error);
+      }
     } else {
       sales.forEach((s) => map.set(s.date, s));
       importedRecords.forEach((r) => {
         map.set(r.date, r);
       });
       const combined = Array.from(map.values());
-      updateSalesList(combined);
+      setSales(combined);
+      saveStoredSales(combined);
       showToast(`Successfully imported & updated ${importedRecords.length} records!`);
+
+      seedSalesBatch(importedRecords).catch(console.error);
     }
 
     setCurrentView('daily');
   };
 
-  const handleResetData = () => {
-    const records = resetToPdfData();
-    setSales(records);
-    showToast(`Reset to complete ${records.length} records from the PDF ledger.`);
+  const handleResetData = async () => {
+    try {
+      const records = await resetSalesToPdfInFirestore();
+      setSales(records);
+      showToast(`Reset to complete ${records.length} records in Firestore database.`);
+    } catch (err) {
+      console.error('Failed to reset Firestore sales:', err);
+      showToast('Error resetting database', 'error');
+    }
   };
 
   const handleExportAll = () => {
@@ -172,81 +250,113 @@ export default function App() {
   // ----------------------------------------------------
   // Expense Handlers
   // ----------------------------------------------------
-  const updateExpensesList = (newExpenses: ExpenseRecord[]) => {
-    setExpenses(newExpenses);
-    saveStoredExpenses(newExpenses);
-  };
-
-  const handleSaveExpense = (
+  const handleSaveExpense = async (
     data: Omit<ExpenseRecord, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
   ) => {
     const now = new Date().toISOString();
+    let recordToSave: ExpenseRecord;
 
     if (existingId) {
-      const updated = expenses.map((e) =>
-        e.id === existingId ? { ...e, ...data, updatedAt: now } : e
-      );
-      updateExpensesList(updated);
+      const existing = expenses.find((e) => e.id === existingId);
+      recordToSave = {
+        id: existingId,
+        ...data,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      const updated = expenses.map((e) => (e.id === existingId ? recordToSave : e));
+      setExpenses(updated);
+      saveStoredExpenses(updated);
       showToast(`Expense "${data.title}" updated successfully!`);
     } else {
-      const newRecord: ExpenseRecord = {
+      recordToSave = {
         id: `exp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         ...data,
         createdAt: now,
         updatedAt: now,
       };
-      const updated = [newRecord, ...expenses];
-      updateExpensesList(updated);
+      const updated = [recordToSave, ...expenses];
+      setExpenses(updated);
+      saveStoredExpenses(updated);
       showToast(`Expense "${data.title}" added successfully!`);
+    }
+
+    try {
+      await saveExpenseToFirestore(recordToSave);
+    } catch (err) {
+      console.error('Failed to sync expense to Firestore:', err);
     }
   };
 
-  const handleDeleteExpense = (id: string) => {
+  const handleDeleteExpense = async (id: string) => {
     const target = expenses.find((e) => e.id === id);
     const updated = expenses.filter((e) => e.id !== id);
-    updateExpensesList(updated);
+    setExpenses(updated);
+    saveStoredExpenses(updated);
     showToast(`Expense "${target?.title || ''}" was deleted.`);
+
+    try {
+      await deleteExpenseFromFirestore(id);
+    } catch (err) {
+      console.error('Failed to delete expense from Firestore:', err);
+    }
   };
 
   // ----------------------------------------------------
   // Purchase Handlers
   // ----------------------------------------------------
-  const updatePurchasesList = (newPurchases: PurchaseRecord[]) => {
-    setPurchases(newPurchases);
-    saveStoredPurchases(newPurchases);
-  };
-
-  const handleSavePurchase = (
+  const handleSavePurchase = async (
     data: Omit<PurchaseRecord, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
   ) => {
     const now = new Date().toISOString();
+    let recordToSave: PurchaseRecord;
 
     if (existingId) {
-      const updated = purchases.map((p) =>
-        p.id === existingId ? { ...p, ...data, updatedAt: now } : p
-      );
-      updatePurchasesList(updated);
-      showToast(`Purchase "${data.itemName}" updated successfully!`);
+      const existing = purchases.find((p) => p.id === existingId);
+      recordToSave = {
+        id: existingId,
+        ...data,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      const updated = purchases.map((p) => (p.id === existingId ? recordToSave : p));
+      setPurchases(updated);
+      saveStoredPurchases(updated);
+      showToast(`Purchase "${data.title}" updated successfully!`);
     } else {
-      const newRecord: PurchaseRecord = {
+      recordToSave = {
         id: `pur_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         ...data,
         createdAt: now,
         updatedAt: now,
       };
-      const updated = [newRecord, ...purchases];
-      updatePurchasesList(updated);
-      showToast(`Purchase "${data.itemName}" logged successfully!`);
+      const updated = [recordToSave, ...purchases];
+      setPurchases(updated);
+      saveStoredPurchases(updated);
+      showToast(`Purchase "${data.title}" logged successfully!`);
+    }
+
+    try {
+      await savePurchaseToFirestore(recordToSave);
+    } catch (err) {
+      console.error('Failed to sync purchase to Firestore:', err);
     }
   };
 
-  const handleDeletePurchase = (id: string) => {
+  const handleDeletePurchase = async (id: string) => {
     const target = purchases.find((p) => p.id === id);
     const updated = purchases.filter((p) => p.id !== id);
-    updatePurchasesList(updated);
-    showToast(`Purchase "${target?.itemName || ''}" was deleted.`);
+    setPurchases(updated);
+    saveStoredPurchases(updated);
+    showToast(`Purchase "${target?.title || ''}" was deleted.`);
+
+    try {
+      await deletePurchaseFromFirestore(id);
+    } catch (err) {
+      console.error('Failed to delete purchase from Firestore:', err);
+    }
   };
 
   return (
@@ -285,7 +395,7 @@ export default function App() {
             setCurrentView(v);
           }
         }}
-        onOpenAddModal={() => {
+        onOpenAddSaleModal={() => {
           setEditingSale(null);
           setIsSalesModalOpen(true);
         }}
@@ -302,6 +412,7 @@ export default function App() {
         totalRecordsCount={sales.length}
         totalExpensesCount={expenses.length}
         totalPurchasesCount={purchases.length}
+        syncStatus={syncStatus}
       />
 
       {/* View Content */}
