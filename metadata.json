@@ -1,0 +1,6 @@
+{
+  "name": "Pick 'N' Eat Daily Sales Tracker",
+  "description": "Daily sales tracking, profit (20%), and cost of goods (80%) calculation for Pick 'N' Eat shop with Excel import and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
