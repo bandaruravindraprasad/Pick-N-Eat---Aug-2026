@@ -3,7 +3,8 @@
     "sales": {
       "title": "Daily Sales Record",
       "description": "Daily sales tracking entries including cash, online, total, profit (20%), and cogs (80%)",
-      "fields": {
+      "type": "object",
+      "properties": {
         "id": { "type": "string", "description": "Unique identifier" },
         "date": { "type": "string", "description": "Date in YYYY-MM-DD format" },
         "cash": { "type": "number", "description": "Cash sales amount" },
@@ -14,38 +15,56 @@
         "notes": { "type": "string", "description": "Optional notes or remarks" },
         "createdAt": { "type": "string", "description": "ISO timestamp of creation" },
         "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
-      }
+      },
+      "required": ["id", "date", "cash", "online", "total", "profit", "cogs"]
     },
     "expenses": {
       "title": "Shop Expense Record",
       "description": "Shop operating expenses like electricity, rent, maintenance, wages, etc.",
-      "fields": {
+      "type": "object",
+      "properties": {
         "id": { "type": "string", "description": "Unique identifier" },
         "date": { "type": "string", "description": "Date in YYYY-MM-DD format" },
         "title": { "type": "string", "description": "Expense title or item description" },
-        "category": { "type": "string", "description": "Category of the expense" },
         "amount": { "type": "number", "description": "Expense amount" },
-        "paymentMethod": { "type": "string", "description": "Payment method (cash/online)" },
+        "paymentMode": { "type": "string", "description": "Payment mode (cash, online, or other)" },
         "notes": { "type": "string", "description": "Optional notes" },
         "createdAt": { "type": "string", "description": "ISO timestamp of creation" },
         "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
-      }
+      },
+      "required": ["id", "date", "title", "amount", "paymentMode"]
     },
     "purchases": {
       "title": "Inventory Purchase Record",
       "description": "Stock and raw materials purchases for the shop",
-      "fields": {
+      "type": "object",
+      "properties": {
         "id": { "type": "string", "description": "Unique identifier" },
         "date": { "type": "string", "description": "Date in YYYY-MM-DD format" },
         "title": { "type": "string", "description": "Item or stock description" },
-        "category": { "type": "string", "description": "Category of inventory" },
         "amount": { "type": "number", "description": "Purchase cost amount" },
-        "paymentMethod": { "type": "string", "description": "Payment method (cash/online)" },
+        "paymentMode": { "type": "string", "description": "Payment mode (cash, online, or other)" },
+        "quantity": { "type": "string", "description": "Optional quantity description" },
         "supplier": { "type": "string", "description": "Supplier or vendor name" },
         "notes": { "type": "string", "description": "Optional notes" },
         "createdAt": { "type": "string", "description": "ISO timestamp of creation" },
         "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
-      }
+      },
+      "required": ["id", "date", "title", "amount", "paymentMode"]
+    }
+  },
+  "firestore": {
+    "/sales/{id}": {
+      "schema": "sales",
+      "description": "Collection storing all daily sales entries."
+    },
+    "/expenses/{id}": {
+      "schema": "expenses",
+      "description": "Collection storing shop expenses."
+    },
+    "/purchases/{id}": {
+      "schema": "purchases",
+      "description": "Collection storing inventory purchases."
     }
   }
 }

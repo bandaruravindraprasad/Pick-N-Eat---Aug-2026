@@ -26,9 +26,24 @@ const SALES_COLLECTION = 'sales';
 const EXPENSES_COLLECTION = 'expenses';
 const PURCHASES_COLLECTION = 'purchases';
 
+/**
+ * Remove undefined values to prevent Firestore rejection
+ */
+function cleanDoc<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const cleaned: Record<string, any> = {};
+  Object.keys(obj).forEach((key) => {
+    if (obj[key] !== undefined) {
+      cleaned[key] = obj[key];
+    }
+  });
+  return cleaned;
+}
+
 // ==========================================
 // SALES SYNC
 // ==========================================
+
+let hasSalesInitialized = false;
 
 export function subscribeToSales(
   onUpdate: (records: SalesRecord[]) => void,
@@ -40,35 +55,40 @@ export function subscribeToSales(
       q,
       (snapshot) => {
         if (snapshot.empty) {
-          // If Firestore is completely empty, we can check if local storage has data or seed from PDF
-          const local = getStoredSales();
-          if (local.length > 0) {
-            // Seed to firestore in background
-            seedSalesBatch(local).catch(console.error);
-            onUpdate(local);
-          } else {
+          const isSeeded = localStorage.getItem('pick_n_eat_sales_seeded');
+          if (!isSeeded && !hasSalesInitialized) {
+            hasSalesInitialized = true;
+            localStorage.setItem('pick_n_eat_sales_seeded', 'true');
             const initial = getInitialPdfSales();
             seedSalesBatch(initial).catch(console.error);
             onUpdate(initial);
+            return;
           }
+
+          hasSalesInitialized = true;
+          saveStoredSales([]);
+          onUpdate([]);
           return;
         }
 
+        hasSalesInitialized = true;
+        localStorage.setItem('pick_n_eat_sales_seeded', 'true');
+
         const items: SalesRecord[] = [];
         snapshot.forEach((docSnap) => {
-          items.push(docSnap.data() as SalesRecord);
+          items.push({
+            ...(docSnap.data() as SalesRecord),
+            id: docSnap.id,
+          });
         });
 
-        // Ensure sorted by date desc
         items.sort((a, b) => b.date.localeCompare(a.date));
-        // Cache to localStorage for instant offline access
         saveStoredSales(items);
         onUpdate(items);
       },
       (error) => {
         console.error('Firestore sales subscription error:', error);
         onError?.(error);
-        // Fallback to local storage
         onUpdate(getStoredSales());
       }
     );
@@ -83,7 +103,7 @@ export function subscribeToSales(
 export async function saveSaleToFirestore(record: SalesRecord): Promise<void> {
   try {
     const docRef = doc(db, SALES_COLLECTION, record.id);
-    await setDoc(docRef, record, { merge: true });
+    await setDoc(docRef, cleanDoc(record), { merge: true });
   } catch (error) {
     console.error('Failed to save sale to Firestore:', error);
     throw error;
@@ -101,14 +121,13 @@ export async function deleteSaleFromFirestore(id: string): Promise<void> {
 }
 
 export async function seedSalesBatch(records: SalesRecord[]): Promise<void> {
-  // Split into chunks of 400 (Firestore max is 500)
   const chunkSize = 400;
   for (let i = 0; i < records.length; i += chunkSize) {
     const chunk = records.slice(i, i + chunkSize);
     const batch = writeBatch(db);
     for (const item of chunk) {
       const docRef = doc(db, SALES_COLLECTION, item.id);
-      batch.set(docRef, item, { merge: true });
+      batch.set(docRef, cleanDoc(item), { merge: true });
     }
     await batch.commit();
   }
@@ -116,7 +135,6 @@ export async function seedSalesBatch(records: SalesRecord[]): Promise<void> {
 
 export async function resetSalesToPdfInFirestore(): Promise<SalesRecord[]> {
   const initial = getInitialPdfSales();
-  // Clear old docs or overwrite with initial
   await seedSalesBatch(initial);
   saveStoredSales(initial);
   return initial;
@@ -125,6 +143,19 @@ export async function resetSalesToPdfInFirestore(): Promise<SalesRecord[]> {
 // ==========================================
 // EXPENSES SYNC
 // ==========================================
+
+export async function seedExpensesBatch(records: ExpenseRecord[]): Promise<void> {
+  const chunkSize = 400;
+  for (let i = 0; i < records.length; i += chunkSize) {
+    const chunk = records.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    for (const item of chunk) {
+      const docRef = doc(db, EXPENSES_COLLECTION, item.id);
+      batch.set(docRef, cleanDoc(item), { merge: true });
+    }
+    await batch.commit();
+  }
+}
 
 export function subscribeToExpenses(
   onUpdate: (records: ExpenseRecord[]) => void,
@@ -135,9 +166,18 @@ export function subscribeToExpenses(
     return onSnapshot(
       q,
       (snapshot) => {
+        if (snapshot.empty) {
+          saveStoredExpenses([]);
+          onUpdate([]);
+          return;
+        }
+
         const items: ExpenseRecord[] = [];
         snapshot.forEach((docSnap) => {
-          items.push(docSnap.data() as ExpenseRecord);
+          items.push({
+            ...(docSnap.data() as ExpenseRecord),
+            id: docSnap.id,
+          });
         });
 
         items.sort((a, b) => b.date.localeCompare(a.date));
@@ -161,7 +201,7 @@ export function subscribeToExpenses(
 export async function saveExpenseToFirestore(record: ExpenseRecord): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, record.id);
-    await setDoc(docRef, record, { merge: true });
+    await setDoc(docRef, cleanDoc(record), { merge: true });
   } catch (error) {
     console.error('Failed to save expense to Firestore:', error);
     throw error;
@@ -182,6 +222,19 @@ export async function deleteExpenseFromFirestore(id: string): Promise<void> {
 // PURCHASES SYNC
 // ==========================================
 
+export async function seedPurchasesBatch(records: PurchaseRecord[]): Promise<void> {
+  const chunkSize = 400;
+  for (let i = 0; i < records.length; i += chunkSize) {
+    const chunk = records.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    for (const item of chunk) {
+      const docRef = doc(db, PURCHASES_COLLECTION, item.id);
+      batch.set(docRef, cleanDoc(item), { merge: true });
+    }
+    await batch.commit();
+  }
+}
+
 export function subscribeToPurchases(
   onUpdate: (records: PurchaseRecord[]) => void,
   onError?: (err: Error) => void
@@ -191,9 +244,18 @@ export function subscribeToPurchases(
     return onSnapshot(
       q,
       (snapshot) => {
+        if (snapshot.empty) {
+          saveStoredPurchases([]);
+          onUpdate([]);
+          return;
+        }
+
         const items: PurchaseRecord[] = [];
         snapshot.forEach((docSnap) => {
-          items.push(docSnap.data() as PurchaseRecord);
+          items.push({
+            ...(docSnap.data() as PurchaseRecord),
+            id: docSnap.id,
+          });
         });
 
         items.sort((a, b) => b.date.localeCompare(a.date));
@@ -217,7 +279,7 @@ export function subscribeToPurchases(
 export async function savePurchaseToFirestore(record: PurchaseRecord): Promise<void> {
   try {
     const docRef = doc(db, PURCHASES_COLLECTION, record.id);
-    await setDoc(docRef, record, { merge: true });
+    await setDoc(docRef, cleanDoc(record), { merge: true });
   } catch (error) {
     console.error('Failed to save purchase to Firestore:', error);
     throw error;
