@@ -101,6 +101,12 @@ export function subscribeToSales(
 }
 
 export async function saveSaleToFirestore(record: SalesRecord): Promise<void> {
+  // Requirement 1, 3, 4, 5: NEVER save record when Cash = 0 AND Online = 0 AND Total = 0
+  if (!record || (record.cash <= 0 && record.online <= 0 && record.total <= 0)) {
+    console.warn('Blocked attempt to save zero/empty sales record to Firestore:', record);
+    return;
+  }
+
   try {
     const docRef = doc(db, SALES_COLLECTION, record.id);
     await setDoc(docRef, cleanDoc(record), { merge: true });

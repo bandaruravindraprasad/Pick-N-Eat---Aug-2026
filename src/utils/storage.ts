@@ -15,13 +15,10 @@ export function getStoredSales(): SalesRecord[] {
       return initial;
     }
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
+    if (Array.isArray(parsed)) {
       return parsed.sort((a, b) => b.date.localeCompare(a.date));
     }
-    // If empty or corrupted, seed with real PDF sales
-    const initial = getInitialPdfSales();
-    saveStoredSales(initial);
-    return initial;
+    return [];
   } catch (error) {
     console.error('Error reading sales from localStorage:', error);
     return getInitialPdfSales();

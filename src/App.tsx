@@ -128,6 +128,12 @@ export default function App() {
     data: Omit<SalesRecord, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
   ) => {
+    // Requirement 1, 3, 4: NEVER create sales record when Cash <= 0 and Online <= 0
+    if ((!data.cash || data.cash <= 0) && (!data.online || data.online <= 0)) {
+      showToast('Sales record must have Cash or Online amount greater than 0.', 'error');
+      return;
+    }
+
     const now = new Date().toISOString();
     let recordToSave: SalesRecord;
 
@@ -194,13 +200,20 @@ export default function App() {
   };
 
   const handleImportComplete = async (importedRecords: SalesRecord[], mode: DuplicateAction) => {
+    // Filter out any invalid/zero sales records
+    const validImported = importedRecords.filter((r) => r.cash > 0 || r.online > 0);
+    if (validImported.length === 0) {
+      showToast('No valid sales records found to import.', 'error');
+      return;
+    }
+
     const map = new Map<string, SalesRecord>();
 
     if (mode === 'skip') {
       sales.forEach((s) => map.set(s.date, s));
       let addedCount = 0;
       const toAdd: SalesRecord[] = [];
-      importedRecords.forEach((r) => {
+      validImported.forEach((r) => {
         if (!map.has(r.date)) {
           map.set(r.date, r);
           toAdd.push(r);
@@ -217,15 +230,15 @@ export default function App() {
       }
     } else {
       sales.forEach((s) => map.set(s.date, s));
-      importedRecords.forEach((r) => {
+      validImported.forEach((r) => {
         map.set(r.date, r);
       });
       const combined = Array.from(map.values());
       setSales(combined);
       saveStoredSales(combined);
-      showToast(`Successfully imported & updated ${importedRecords.length} records!`);
+      showToast(`Successfully imported & updated ${validImported.length} records!`);
 
-      seedSalesBatch(importedRecords).catch(console.error);
+      seedSalesBatch(validImported).catch(console.error);
     }
 
     setCurrentView('daily');
